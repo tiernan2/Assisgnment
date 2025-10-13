@@ -17,7 +17,7 @@ void setup() {
   digitalWrite(ledPin, LOW);
   noTone(buzzerPin);
 
-  Serial.begin(9600);
+  Serial.begin(9600); //
   Serial.println("red light");
 }
 
