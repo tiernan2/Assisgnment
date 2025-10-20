@@ -18,7 +18,6 @@ void setup() { //This is the defualt start position. there is no light or buzzer
   noTone(buzzerPin); // buzzer off
 
   Serial.begin(9600); //
-  Serial.println("red light")
 }
 
 void loop() {
