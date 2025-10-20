@@ -35,7 +35,7 @@ void loop() {
 
   // After 5 seconds from button press, turn on LED and buzzer
   if (waitingToStart && (millis() - pressTime >= 5000)) { // waits 5 seconds
-    Serial.println("Button was Pressed!"); //text appears in the serial monitor to indicate the start of the cycle
+    Serial.println("Light is Green, safe to cross"); //text appears in the serial monitor to indicate the start of the cycle
     digitalWrite(ledPin, HIGH); //led comes on
     tone(buzzerPin, 1000); // buzzer comes on
     outputStartTime = millis();
