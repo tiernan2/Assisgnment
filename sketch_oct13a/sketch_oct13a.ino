@@ -1,17 +1,13 @@
-#include <WiFi.h>
+#include <WiFiS3.h>
+#include <WiFiSSLClient.h>
 #include <ArduinoHttpClient.h>
+
+// ------------------ Pins ------------------
 const int buttonPin = A2;
 const int ledPin = A0;
 const int buzzerPin = 4;
 
-// WIFI SETTINGS 
-const char* ssid     = "IOT-MPSK";
-const char* password = "wlzjlzns";
-
-// GOOGLE SCRIPT URL
-String url = "https://script.google.com/macros/s/AKfycbzIlwvIoNn7SmkJthgTUDMSKM2QHDOrHHHjyfzOJ58NzkH7R3qOarxYrEo7nBk1yAnp/exec";
-
-// VARIABLES --------------------
+// ------------------ Button/Buzzer Logic ------------------
 bool lastButtonState = HIGH;
 bool waitingToStart = false;
 bool outputOn = false;
@@ -19,48 +15,24 @@ bool outputOn = false;
 unsigned long pressTime = 0;
 unsigned long outputStartTime = 0;
 
-unsigned long debounceTime = 0;
-const unsigned long debounceDelay = 50; // ms
+// ------------------ ThingSpeak ------------------
+const char* ssid = "IOT-MPSK";       // Remove trailing space
+const char* password = "ffcvqjjt";   
+const char* host = "api.thingspeak.com";
+const int httpsPort = 443;
+const char* writeAPIKey = "TME46SAY6T8Z2UX3";
 
-void connectToWiFi() {
-  Serial.print("Connecting to WiFi: ");
-  Serial.println(ssid);
+// Track number of cycles
+unsigned long cycleCount = 0;
 
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
+// Track last upload time for 15-second rate limit
+unsigned long lastUploadTime = 0;
 
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("\nWiFi connected!");
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
-}
-
-void sendButtonPress() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi not connected — cannot send.");
-    return;
-  }
-
-  HTTPClient http;
-  http.begin(url);
-  http.addHeader("Content-Type", "application/json");
-
-  String json = "{\"button\":\"pressed\"}";
-  int response = http.POST(json);
-
-  Serial.print("POST Response: ");
-  Serial.println(response);
-
-  http.end();
-}
+// WiFi client
+WiFiSSLClient wifi;
+HttpClient client = HttpClient(wifi, host, httpsPort);
 
 void setup() {
-  Serial.begin(115200);
-
   pinMode(buttonPin, INPUT_PULLUP);
   pinMode(ledPin, OUTPUT);
   pinMode(buzzerPin, OUTPUT);
@@ -68,36 +40,86 @@ void setup() {
   digitalWrite(ledPin, LOW);
   noTone(buzzerPin);
 
-  connectToWiFi();
-  Serial.println("Setup complete.");
-  Serial.println("Waiting for button input...");
+  Serial.begin(9600);
+  delay(1000);
+
+  // Connect to WiFi
+  Serial.print("Connecting to WiFi");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi Connected!");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+}
+
+// ------------------ Send data to ThingSpeak ------------------
+void sendToThingSpeak(unsigned long count) {
+  String url = "/update?api_key=";
+  url += writeAPIKey;
+  url += "&field1=";
+  url += String(count);
+
+  Serial.print("Sending to ThingSpeak: ");
+  Serial.println(count);
+
+  client.beginRequest();
+  client.get(url);
+  client.sendHeader("Host", host);
+  client.sendHeader("Connection", "close");
+  client.endRequest();
+
+  int status = client.responseStatusCode();
+  String response = client.responseBody();
+
+  Serial.print("HTTP Status: ");
+  Serial.println(status);
+  Serial.print("Response: ");
+  Serial.println(response);
 }
 
 void loop() {
-  int reading = digitalRead(buttonPin);
+  bool currentButtonState = digitalRead(buttonPin);
 
-  // Debounce
-  if (reading != lastButtonState) {
-    debounceTime = millis();
+  // Detect button press (HIGH → LOW)
+  if (lastButtonState == HIGH && currentButtonState == LOW) {
+    pressTime = millis();
+    waitingToStart = true;
+    outputOn = false;
+
+    digitalWrite(ledPin, LOW);
+    noTone(buzzerPin);
   }
 
-  if (millis() - debounceTime > debounceDelay) {
+  // After 5 seconds → turn ON LED + buzzer and increment cycle
+  if (waitingToStart && (millis() - pressTime >= 5000)) {
+    Serial.println("Button was Pressed! Light is Green, safe to cross");
 
-    // Detect a NEW press (HIGH → LOW)
-    if (reading == LOW && lastButtonState == HIGH) {
-      Serial.println("BUTTON PRESSED!");
+    digitalWrite(ledPin, HIGH);
+    tone(buzzerPin, 1000);
 
-      digitalWrite(ledPin, HIGH);
-      tone(buzzerPin, 1000, 100); // short beep
+    outputStartTime = millis();
+    outputOn = true;
+    waitingToStart = false;
 
-      sendButtonPress();  // SEND ONLY ONCE PER PRESS
-    }
+    // Increment cycle counter
+    cycleCount++;
 
-    // Detect release (LOW → HIGH)
-    if (reading == HIGH && lastButtonState == LOW) {
-      digitalWrite(ledPin, LOW);
+    // Send cycle count to ThingSpeak (rate-limited)
+      if (millis() - lastUploadTime > 15000) { // 15-second ThingSpeak limit
+      sendToThingSpeak(cycleCount);
+      lastUploadTime = millis();
     }
   }
 
-  lastButtonState = reading;
+  // Turn off LED and buzzer after 8 seconds
+  if (outputOn && (millis() - outputStartTime >= 8000)) {
+    digitalWrite(ledPin, LOW);
+    noTone(buzzerPin);
+    outputOn = false;
+  }
+
+  lastButtonState = currentButtonState;
 }
