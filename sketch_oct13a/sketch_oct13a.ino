@@ -135,8 +135,7 @@ void loop() {
     lcd.setRGB(0, 255, 0); // Green
     lcd.print("SAFE TO CROSS");
     lcd.setCursor(0, 1);
-    lcd.print("Count: ");
-    lcd.print(cycleCount);
+    
 
     // Send to ThingSpeak (rate-limited)
     if (millis() - lastUploadTime > 15000) {
