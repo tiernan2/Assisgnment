@@ -1,11 +1,6 @@
-#define BLYNK_TEMPLATE_ID "TMPL48f4hWvWj"
-#define BLYNK_TEMPLATE_NAME "IoT Assignment"
-#define BLYNK_AUTH_TOKEN "CyZEF_aH0S3EpTUus6sfRaTSyrhGQIvL"
-
 #include <WiFiS3.h>
 #include <ArduinoHttpClient.h>
 #include <rgb_lcd.h>
-#include <BlynkSimpleWifi.h>
 
 // ------------------ LCD ------------------
 rgb_lcd lcd;
@@ -39,22 +34,35 @@ unsigned long lastUploadTime = 0;
 WiFiClient wifi;
 HttpClient client = HttpClient(wifi, host, httpPort);
 
-// ------------------ Blynk ------------------
-char blynkAuth[] = BLYNK_AUTH_TOKEN;
+void setup() {
+  pinMode(buttonPin, INPUT_PULLUP);
+  pinMode(ledPin, OUTPUT);
+  pinMode(buzzerPin, OUTPUT);
 
-// ------------------ Blynk Remote Button (V2) ------------------
-BLYNK_WRITE(V2) {
-  int state = param.asInt();
-  if (state == 1) {
-    pressTime = millis();
-    waitingToStart = true;
-    outputOn = false;
+  Serial.begin(9600);
+  delay(1000);
 
-    Serial.println("Remote Blynk Triggered");
-    lcd.clear();
-    lcd.print("Remote Trigger");
-    Blynk.virtualWrite(V1, "WAITING");
+  // ------------------ LCD SETUP ------------------
+  lcd.begin(16, 2);
+  lcd.setRGB(colorR, colorG, colorB);
+  lcd.print("Connecting WiFi");
+
+  // ------------------ Connect to WiFi ------------------
+  Serial.print("Connecting to WiFi");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
   }
+
+  Serial.println("\nWiFi Connected!");
+
+  lcd.clear();
+  lcd.print("WiFi Connected!");
+  delay(1000);
+
+  lcd.clear();
+  lcd.print("Press button...");
 }
 
 // ------------------ Send data to ThingSpeak ------------------
@@ -77,3 +85,75 @@ void sendToThingSpeak(unsigned long count) {
   client.get(url);
   client.sendHeader("Host", host);
   client.sendHeader("Connection", "close");
+  client.endRequest();
+
+  int status = client.responseStatusCode();
+  String response = client.responseBody();
+
+  Serial.print("HTTP Status: ");
+  Serial.println(status);
+  Serial.print("Response: ");
+  Serial.println(response);
+
+  lcd.clear();
+  lcd.print("Sent count: ");
+  lcd.print(count);
+  delay(800);
+}
+
+void loop() {
+  bool currentButtonState = digitalRead(buttonPin);
+
+  // Detect button press
+  if (lastButtonState == HIGH && currentButtonState == LOW) {
+    pressTime = millis();
+    waitingToStart = true;
+    outputOn = false;
+
+    digitalWrite(ledPin, LOW);
+    noTone(buzzerPin);
+
+    lcd.clear();
+    lcd.print("Please wait...");
+  }
+
+  // After 5s → safe to cross
+  if (waitingToStart && (millis() - pressTime >= 5000)) {
+    Serial.println("SAFE TO CROSS");
+
+    digitalWrite(ledPin, HIGH);
+    tone(buzzerPin, 1000);
+
+    outputStartTime = millis();
+    outputOn = true;
+    waitingToStart = false;
+
+    cycleCount++;
+
+    // LCD update
+    lcd.clear();
+    lcd.setRGB(0, 255, 0); // Green
+    lcd.print("SAFE TO CROSS");
+    lcd.setCursor(0, 1);
+    
+
+    // Send to ThingSpeak (rate-limited)
+    if (millis() - lastUploadTime > 15000) {
+      sendToThingSpeak(cycleCount);
+      lastUploadTime = millis();
+    }
+  }
+
+  // Turn off after 8 seconds
+  if (outputOn && (millis() - outputStartTime >= 8000)) {
+    digitalWrite(ledPin, LOW);
+    noTone(buzzerPin);
+    outputOn = false;
+
+    lcd.clear();
+    lcd.setRGB(255, 165, 0); // Orange
+    lcd.print("Press button...");
+  }
+
+  lastButtonState = currentButtonState;
+}
