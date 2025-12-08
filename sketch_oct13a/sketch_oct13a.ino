@@ -1,5 +1,12 @@
 #include <WiFiS3.h>
 #include <ArduinoHttpClient.h>
+#include <rgb_lcd.h>
+
+// ------------------ LCD ------------------
+rgb_lcd lcd;
+const int colorR = 0;
+const int colorG = 128;
+const int colorB = 255;
 
 // ------------------ Pins ------------------
 const int buttonPin = A2;
@@ -35,6 +42,12 @@ void setup() {
   Serial.begin(9600);
   delay(1000);
 
+  // ------------------ LCD SETUP ------------------
+  lcd.begin(16, 2);
+  lcd.setRGB(colorR, colorG, colorB);
+  lcd.print("Connecting WiFi");
+
+  // ------------------ Connect to WiFi ------------------
   Serial.print("Connecting to WiFi");
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
@@ -43,10 +56,16 @@ void setup() {
   }
 
   Serial.println("\nWiFi Connected!");
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
+
+  lcd.clear();
+  lcd.print("WiFi Connected!");
+  delay(1000);
+
+  lcd.clear();
+  lcd.print("Press button...");
 }
 
+// ------------------ Send data to ThingSpeak ------------------
 void sendToThingSpeak(unsigned long count) {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi dropped — reconnecting...");
@@ -75,11 +94,17 @@ void sendToThingSpeak(unsigned long count) {
   Serial.println(status);
   Serial.print("Response: ");
   Serial.println(response);
+
+  lcd.clear();
+  lcd.print("Sent count: ");
+  lcd.print(count);
+  delay(800);
 }
 
 void loop() {
   bool currentButtonState = digitalRead(buttonPin);
 
+  // Detect button press
   if (lastButtonState == HIGH && currentButtonState == LOW) {
     pressTime = millis();
     waitingToStart = true;
@@ -87,10 +112,14 @@ void loop() {
 
     digitalWrite(ledPin, LOW);
     noTone(buzzerPin);
+
+    lcd.clear();
+    lcd.print("Please wait...");
   }
 
+  // After 5s → safe to cross
   if (waitingToStart && (millis() - pressTime >= 5000)) {
-    Serial.println("Button was Pressed! Light is Green, safe to cross");
+    Serial.println("SAFE TO CROSS");
 
     digitalWrite(ledPin, HIGH);
     tone(buzzerPin, 1000);
@@ -101,16 +130,30 @@ void loop() {
 
     cycleCount++;
 
+    // LCD update
+    lcd.clear();
+    lcd.setRGB(0, 255, 0); // Green
+    lcd.print("SAFE TO CROSS");
+    lcd.setCursor(0, 1);
+    lcd.print("Count: ");
+    lcd.print(cycleCount);
+
+    // Send to ThingSpeak (rate-limited)
     if (millis() - lastUploadTime > 15000) {
       sendToThingSpeak(cycleCount);
       lastUploadTime = millis();
     }
   }
 
+  // Turn off after 8 seconds
   if (outputOn && (millis() - outputStartTime >= 8000)) {
     digitalWrite(ledPin, LOW);
     noTone(buzzerPin);
     outputOn = false;
+
+    lcd.clear();
+    lcd.setRGB(255, 165, 0); // Orange
+    lcd.print("Press button...");
   }
 
   lastButtonState = currentButtonState;
